@@ -1,456 +1,227 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { X, Upload, Loader2, ChevronDown, Trash2, Star, Calendar as CalendarIcon } from 'lucide-react';
-import { Category, Photo, Theme } from '../types';
-import { GlassCard } from './GlassCard';
-import EXIF from 'exif-js';
+import React, { useEffect, useState } from 'react';
+import { X, ChevronLeft, ChevronRight, MoreHorizontal } from 'lucide-react';
+import { Photo, Theme } from '../types';
+import { PhotoDetail } from './PhotoDetail';
 
-interface SmartInputProps {
-  label: string;
-  value: string;
-  onChange: (val: string) => void;
-  storageKey: string;
-  placeholder?: string;
+interface PhotoModalProps {
+  photo: Photo | null;
+  onClose: () => void;
+  onNext?: () => void;
+  onPrev?: () => void;
+  hasNext?: boolean;
+  hasPrev?: boolean;
   theme: Theme;
-  type?: string;
+  slideDirection: 'left' | 'right';
+  isAdmin?: boolean;
+  onUpdatePhoto?: (photo: Photo) => void;
 }
 
-const SmartInput: React.FC<SmartInputProps> = ({ label, value, onChange, storageKey, placeholder, theme, type = 'text' }) => {
-  const [showHistory, setShowHistory] = useState(false);
-  const [history, setHistory] = useState<string[]>([]);
-  const wrapperRef = useRef<HTMLDivElement>(null);
+export const PhotoModal: React.FC<PhotoModalProps> = ({ 
+  photo, 
+  onClose, 
+  onNext, 
+  onPrev, 
+  hasNext, 
+  hasPrev, 
+  theme,
+  slideDirection,
+  isAdmin,
+  onUpdatePhoto
+}) => {
   const isDark = theme === 'dark';
-
-  useEffect(() => {
-    if (type !== 'text') return; // Don't use history for date inputs
-    const saved = localStorage.getItem(`lumina_history_${storageKey}`);
-    if (saved) {
-      setHistory(JSON.parse(saved));
-    }
-    const handleClickOutside = (event: MouseEvent) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
-        setShowHistory(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [storageKey, type]);
-
-  const saveToHistory = () => {
-    if (type !== 'text' || !value.trim()) return;
-    const newHistory = Array.from(new Set([value, ...history])).slice(10);
-    setHistory(newHistory);
-    localStorage.setItem(`lumina_history_${storageKey}`, JSON.stringify(newHistory));
-  };
-
-  const deleteFromHistory = (e: React.MouseEvent, item: string) => {
-    e.stopPropagation();
-    const newHistory = history.filter(h => h !== item);
-    setHistory(newHistory);
-    localStorage.setItem(`lumina_history_${storageKey}`, JSON.stringify(newHistory));
-  };
-
-  const inputClass = isDark 
-    ? "bg-white/5 border-white/10 text-white focus:bg-white/10 focus:border-white/30 placeholder:text-white/20" 
-    : "bg-black/5 border-black/10 text-black focus:bg-black/5 focus:border-black/30 placeholder:text-black/30";
   
-  const labelClass = isDark ? "text-white/60" : "text-black/50";
-  const dropdownClass = isDark ? "bg-[#1a1f35] border-white/10 text-white/80" : "bg-white border-black/10 text-black/80";
-  const dropdownHoverClass = isDark ? "hover:bg-white/10" : "hover:bg-black/5";
+  // State to manage transitions
+  const [activePhoto, setActivePhoto] = useState<Photo | null>(photo);
+  const [exitingPhoto, setExitingPhoto] = useState<Photo | null>(null);
+  const [animDirection, setAnimDirection] = useState<'left' | 'right'>(slideDirection);
+  const [isFirstOpen, setIsFirstOpen] = useState(true);
+
+  // Sync prop changes to state for animations
+  useEffect(() => {
+    if (photo && activePhoto && photo.id !== activePhoto.id) {
+      setExitingPhoto(activePhoto);
+      setActivePhoto(photo);
+      setAnimDirection(slideDirection);
+      setIsFirstOpen(false); // Navigation occurred, so disable fade-in fallback
+    } else if (photo && !activePhoto) {
+      // First open
+      setActivePhoto(photo);
+      setExitingPhoto(null);
+      setIsFirstOpen(true);
+    } else if (photo && activePhoto && photo.id === activePhoto.id && photo !== activePhoto) {
+      // Deep update (e.g. rating change) without transition
+      setActivePhoto(photo);
+    }
+  }, [photo, slideDirection, activePhoto]);
+
+  // Handle Close - Reset states
+  useEffect(() => {
+    if (!photo) {
+      setActivePhoto(null);
+      setExitingPhoto(null);
+      setIsFirstOpen(true);
+    }
+  }, [photo]);
+
+  // Lock body scroll
+  useEffect(() => {
+    if (photo) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!photo) return;
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowRight' && onNext) onNext();
+      if (e.key === 'ArrowLeft' && onPrev) onPrev();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = 'unset';
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [photo, onClose, onNext, onPrev]);
+
+  if (!photo || !activePhoto) return null;
 
   return (
-    <div className="relative" ref={wrapperRef}>
-      <label className={`block text-xs uppercase tracking-wider mb-1 ${labelClass}`}>{label}</label>
-      <div className="relative">
-        <input 
-          type={type}
-          value={value} 
-          onChange={(e) => onChange(e.target.value)}
-          onBlur={saveToHistory}
-          onFocus={() => type === 'text' && setShowHistory(true)}
-          className={`w-full border rounded p-2 text-xs focus:outline-none transition-colors ${inputClass} ${type === 'date' ? 'min-h-[34px]' : ''}`}
-          placeholder={placeholder}
-        />
-        {type === 'text' && history.length > 0 && (
-          <button 
-            type="button"
-            onClick={() => setShowHistory(!showHistory)}
-            className={`absolute right-2 top-1/2 -translate-y-1/2 hover:scale-110 ${isDark ? 'text-white/30 hover:text-white' : 'text-black/30 hover:text-black'}`}
-          >
-            <ChevronDown size={14} />
-          </button>
-        )}
+    <div 
+      className="fixed inset-0 z-[100] flex flex-col items-center justify-center animate-fade-in overflow-hidden"
+    >
+      {/* 1. Solid Background (Grey for Light, Dark for Dark) matching reference */}
+      <div className={`absolute inset-0 z-0 transition-colors duration-500
+        ${isDark ? 'bg-[#1a1a1a]' : 'bg-[#E5E5E5]'}
+      `} />
+
+      {/* Background click to close */}
+      <div className="absolute inset-0 z-10" onClick={onClose} />
+
+      {/* Top Right Controls */}
+      <div className="absolute top-6 right-6 z-[120] flex items-center gap-2">
+        <button 
+          className={`p-3 rounded-full transition-all hover:scale-110
+            ${isDark 
+              ? 'text-white/50 hover:text-white' 
+              : 'text-black/40 hover:text-black'
+            }
+          `}
+        >
+          <MoreHorizontal size={24} />
+        </button>
+        <button 
+          onClick={onClose}
+          className={`p-3 rounded-full transition-all hover:rotate-90
+            ${isDark 
+              ? 'text-white/50 hover:text-white' 
+              : 'text-black/40 hover:text-black'
+            }
+          `}
+        >
+          <X size={28} strokeWidth={1.5} />
+        </button>
       </div>
 
-      {showHistory && history.length > 0 && (
-        <div className={`absolute z-50 top-full left-0 right-0 mt-1 border rounded-lg shadow-xl overflow-hidden max-h-40 overflow-y-auto ${dropdownClass}`}>
-          {history.map((item) => (
-            <div 
-              key={item} 
-              className={`flex justify-between items-center px-3 py-2 cursor-pointer group ${dropdownHoverClass}`}
-              onClick={() => { onChange(item); setShowHistory(false); }}
-            >
-              <span className="truncate flex-1">{item}</span>
-              <button 
-                onClick={(e) => deleteFromHistory(e, item)}
-                className="opacity-50 hover:opacity-100 text-red-400 hover:text-red-500 p-1 transition-opacity"
-                title="删除"
-              >
-                <Trash2 size={12} />
-              </button>
-            </div>
-          ))}
-        </div>
+      {/* Navigation Arrows - Fixed Position */}
+      {hasPrev && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onPrev?.(); }}
+          className={`absolute left-4 md:left-8 top-1/2 -translate-y-1/2 z-[120] p-4 rounded-full transition-all group hover:scale-110
+            ${isDark 
+              ? 'text-white/50 hover:text-white' 
+              : 'text-black/50 hover:text-black'
+            }
+          `}
+        >
+          <ChevronLeft size={40} strokeWidth={1.5} />
+        </button>
       )}
-    </div>
-  );
-};
 
-interface UploadModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onUpload: (photo: Photo) => void;
-  theme: Theme;
-  editingPhoto?: Photo | null;
-}
+      {hasNext && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onNext?.(); }}
+          className={`absolute right-4 md:right-8 top-1/2 -translate-y-1/2 z-[120] p-4 rounded-full transition-all group hover:scale-110
+             ${isDark 
+              ? 'text-white/50 hover:text-white' 
+              : 'text-black/50 hover:text-black'
+            }
+          `}
+        >
+          <ChevronRight size={40} strokeWidth={1.5} />
+        </button>
+      )}
 
-export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUpload, theme, editingPhoto }) => {
-  const [loading, setLoading] = useState(false);
-  const [imageUrl, setImageUrl] = useState<string>('');
-  const [imageDims, setImageDims] = useState<{width: number, height: number}>({ width: 0, height: 0 });
-  const [title, setTitle] = useState('');
-  const [category, setCategory] = useState<Category>(Category.LANDSCAPE);
-  const [rating, setRating] = useState(5);
-  
-  // EXIF Form State
-  const [camera, setCamera] = useState('');
-  const [lens, setLens] = useState('');
-  const [aperture, setAperture] = useState('');
-  const [shutter, setShutter] = useState('');
-  const [iso, setIso] = useState('');
-  const [location, setLocation] = useState('');
-  const [date, setDate] = useState('');
-  const [focalLength, setFocalLength] = useState('');
-
-  const isDark = theme === 'dark';
-  const textPrimary = isDark ? "text-white" : "text-black";
-  const textSecondary = isDark ? "text-white/60" : "text-black/60";
-
-  // Init for Edit Mode
-  useEffect(() => {
-    if (isOpen && editingPhoto) {
-      setImageUrl(editingPhoto.url);
-      setTitle(editingPhoto.title);
-      setCategory(editingPhoto.category);
-      setRating(editingPhoto.rating || 0);
-      setImageDims({ width: editingPhoto.width || 0, height: editingPhoto.height || 0 });
-      
-      setCamera(editingPhoto.exif.camera);
-      setLens(editingPhoto.exif.lens);
-      setAperture(editingPhoto.exif.aperture);
-      setShutter(editingPhoto.exif.shutterSpeed);
-      setIso(editingPhoto.exif.iso);
-      setLocation(editingPhoto.exif.location);
-      setDate(editingPhoto.exif.date);
-      setFocalLength(editingPhoto.exif.focalLength || '');
-    } else if (isOpen && !editingPhoto) {
-      // Reset for new upload
-      setImageUrl(''); setImageDims({width:0,height:0}); setTitle(''); setRating(5);
-      setCamera(''); setLens(''); setAperture(''); setShutter(''); setIso(''); setLocation(''); setFocalLength('');
-      
-      // Default date to today
-      const today = new Date();
-      const yyyy = today.getFullYear();
-      const mm = String(today.getMonth() + 1).padStart(2, '0');
-      const dd = String(today.getDate()).padStart(2, '0');
-      setDate(`${yyyy}-${mm}-${dd}`);
-    }
-  }, [isOpen, editingPhoto]);
-
-  // Helper: Compress Image to under 2MB
-  const compressImage = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const maxSizeInBytes = 2 * 1024 * 1024; // 2MB
-      const objectUrl = URL.createObjectURL(file);
-      const img = new Image();
-      img.src = objectUrl;
-
-      img.onload = () => {
-        URL.revokeObjectURL(objectUrl);
-        let width = img.naturalWidth;
-        let height = img.naturalHeight;
+      {/* Main Content Area */}
+      <div className="relative z-[110] w-full h-full flex flex-col pointer-events-none">
         
-        // 1. Limit Max Resolution (e.g. 2K QHD) to save size instantly
-        const MAX_DIMENSION = 2560;
-        let needsResize = false;
-
-        if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
-          needsResize = true;
-          const ratio = width / height;
-          if (width > height) {
-            width = MAX_DIMENSION;
-            height = width / ratio;
-          } else {
-            height = MAX_DIMENSION;
-            width = height * ratio;
-          }
-        }
-
-        // If file is already small enough and dimensions are reasonable, use original
-        if (file.size <= maxSizeInBytes && !needsResize) {
-           const reader = new FileReader();
-           reader.onload = (e) => resolve(e.target?.result as string);
-           reader.onerror = reject;
-           reader.readAsDataURL(file);
-           return;
-        }
-
-        // 2. Compress via Canvas
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) { reject(new Error('Canvas context unavailable')); return; }
-
-        ctx.drawImage(img, 0, 0, width, height);
-
-        let quality = 0.9;
-        let dataUrl = canvas.toDataURL('image/jpeg', quality);
-        
-        // Approx base64 length limit (base64 is ~1.37x larger than binary)
-        const maxStringLength = maxSizeInBytes * 1.37;
-
-        // Iteratively reduce quality
-        while (dataUrl.length > maxStringLength && quality > 0.3) {
-           quality -= 0.1;
-           dataUrl = canvas.toDataURL('image/jpeg', quality);
-        }
-
-        // Hard fallback if still too big
-        if (dataUrl.length > maxStringLength) {
-           const scale = 0.8;
-           canvas.width = width * scale;
-           canvas.height = height * scale;
-           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-           dataUrl = canvas.toDataURL('image/jpeg', 0.6);
-        }
-
-        resolve(dataUrl);
-      };
-      
-      img.onerror = (e) => {
-        URL.revokeObjectURL(objectUrl);
-        reject(e);
-      }
-    });
-  };
-
-  if (!isOpen) return null;
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setLoading(true);
-      
-      // 1. Read EXIF safely from Original File
-      try {
-        await new Promise<void>((resolve) => {
-            EXIF.getData(file as any, function(this: any) {
-                if (!this || !this.exifdata) { resolve(); return; }
-
-                const getTag = (tag: string) => EXIF.getTag(this, tag);
-
-                const make = getTag('Make');
-                const model = getTag('Model');
-                if (model) {
-                    const cleanMake = make ? make.replace(/\0/g, '').trim() : '';
-                    const cleanModel = model.replace(/\0/g, '').trim();
-                    setCamera(cleanModel.startsWith(cleanMake) ? cleanModel : `${cleanMake} ${cleanModel}`.trim());
-                }
-
-                const isoVal = getTag('ISOSpeedRatings');
-                if (isoVal) setIso(String(isoVal));
-
-                const fNumber = getTag('FNumber');
-                if (fNumber) setAperture(`f/${Number(fNumber).toFixed(1)}`.replace('.0', ''));
-
-                const exposure = getTag('ExposureTime');
-                if (exposure) {
-                    // ExposureTime can be a Number or a Fraction object
-                    if (typeof exposure === 'number') {
-                        setShutter(exposure < 1 ? `1/${Math.round(1/exposure)}s` : `${exposure}s`);
-                    } else if (exposure.numerator && exposure.denominator) {
-                         setShutter(`${exposure.numerator}/${exposure.denominator}s`);
-                    }
-                }
-
-                const focal = getTag('FocalLength');
-                if (focal) {
-                     const fVal = typeof focal === 'number' ? focal : focal.numerator / focal.denominator;
-                     setFocalLength(`${Math.round(fVal)}mm`);
-                }
-
-                const dateTag = getTag('DateTimeOriginal');
-                if (dateTag) {
-                    // Format: "2023:10:24 14:30:00" -> "2023-10-24"
-                    const parts = dateTag.split(' ')[0].replace(/:/g, '-');
-                    setDate(parts);
-                }
-                resolve();
-            });
-        });
-      } catch (err) {
-        console.error("EXIF Extraction failed:", err);
-      }
-
-      // 2. Compress and Load Image
-      try {
-         const compressedBase64 = await compressImage(file);
-         
-         const img = new Image();
-         img.onload = () => {
-             setImageDims({ width: img.naturalWidth, height: img.naturalHeight });
-             setImageUrl(compressedBase64);
-             setLoading(false);
-         };
-         img.src = compressedBase64;
-      } catch (err) {
-         console.error("Compression error:", err);
-         setLoading(false);
-         alert("图片处理失败，请重试");
-      }
-    }
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!imageUrl) return;
-
-    const photoData: Photo = {
-      id: editingPhoto ? editingPhoto.id : Date.now().toString(),
-      url: imageUrl,
-      title: title || '未命名作品',
-      category: category,
-      width: imageDims.width,
-      height: imageDims.height,
-      rating: rating,
-      exif: { camera, lens, aperture, shutterSpeed: shutter, iso, location, date, focalLength }
-    };
-
-    onUpload(photoData);
-    onClose();
-  };
-
-  return (
-    <div className={`fixed inset-0 z-[200] flex items-center justify-center p-4 animate-fade-in ${isDark ? 'bg-black/80 backdrop-blur-sm' : 'bg-white/60 backdrop-blur-md'}`}>
-      <GlassCard className="w-full max-w-2xl h-[85vh] flex flex-col" hoverEffect={false} theme={theme}>
-        
-        {/* Fixed Header */}
-        <div className="flex-shrink-0 p-6 pb-2 flex justify-between items-center border-b border-transparent">
-            <h2 className={`text-2xl font-serif ${textPrimary}`}>{editingPhoto ? '编辑作品信息' : '上传作品'}</h2>
-            <button onClick={onClose} className={`${textSecondary} hover:${textPrimary} transition-colors`}>
-              <X size={24} />
-            </button>
-        </div>
-
-        {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto p-6 pt-2 custom-scrollbar">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Image Preview */}
-            <div className={`w-full aspect-video rounded-xl border-2 border-dashed flex flex-col items-center justify-center relative overflow-hidden group transition-colors flex-shrink-0
-               ${isDark ? 'border-white/20 bg-white/5 hover:border-white/40' : 'border-black/20 bg-black/5 hover:border-black/40'}
-            `}>
-              {imageUrl ? (
-                <img src={imageUrl} alt="Preview" className="w-full h-full object-contain" />
-              ) : (
-                <div className={`flex flex-col items-center ${isDark ? 'text-white/50' : 'text-black/50'}`}>
-                  {loading ? <Loader2 className="animate-spin mb-2" /> : <Upload size={40} className="mb-2" />}
-                  <span className="text-sm">点击选择或拖拽图片</span>
-                </div>
-              )}
-              {/* Only allow re-uploading file if not in edit mode (simplification, can be enabled if needed) */}
-              {!editingPhoto && (
-                 <input type="file" accept="image/jpeg,image/tiff,image/png" onChange={handleFileChange} className="absolute inset-0 opacity-0 cursor-pointer" />
-              )}
-            </div>
-
-            {/* Basic Info */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className={`block text-xs uppercase tracking-wider mb-1 ${textSecondary}`}>作品标题</label>
-                <input 
-                  type="text" 
-                  value={title} 
-                  onChange={(e) => setTitle(e.target.value)}
-                  className={`w-full border rounded-lg p-2 focus:outline-none transition-colors ${isDark ? 'bg-white/10 border-white/10 text-white focus:border-white/40' : 'bg-black/5 border-black/10 text-black focus:border-black/40'}`}
-                  placeholder="例如：寂静山岭"
-                />
-              </div>
-              <div>
-                <label className={`block text-xs uppercase tracking-wider mb-1 ${textSecondary}`}>作品分类</label>
-                <select 
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value as Category)}
-                  className={`w-full border rounded-lg p-2 focus:outline-none ${isDark ? 'bg-white/10 border-white/10 text-white [&>option]:text-black' : 'bg-black/5 border-black/10 text-black'}`}
-                >
-                  {Object.values(Category)
-                    .filter(c => c !== Category.ALL && c !== Category.HORIZONTAL && c !== Category.VERTICAL)
-                    .map(c => (<option key={c} value={c}>{c}</option>))}
-                </select>
-              </div>
-            </div>
-
-            {/* Rating */}
-            <div>
-               <label className={`block text-xs uppercase tracking-wider mb-1 ${textSecondary}`}>评级</label>
-               <div className="flex gap-2">
-                 {[1,2,3,4,5].map(s => (
-                   <button type="button" key={s} onClick={() => setRating(s)} className="focus:outline-none hover:scale-110 transition-transform">
-                     <Star 
-                       size={20} 
-                       className={s <= rating ? (isDark ? 'text-white fill-white' : 'text-black fill-black') : (isDark ? 'text-white/20' : 'text-black/20')} 
-                     />
-                   </button>
-                 ))}
-               </div>
-            </div>
-
-            {/* EXIF Section */}
-            <div className={`border-t pt-4 ${isDark ? 'border-white/10' : 'border-black/10'}`}>
-              <div className="flex justify-between items-end mb-3">
-                 <h3 className={`text-sm font-medium ${isDark ? 'text-white/80' : 'text-black/80'}`}>EXIF 参数信息</h3>
-                 <span className={`text-[10px] ${isDark ? 'text-white/40' : 'text-black/40'}`}>
-                   {editingPhoto ? '可直接修改参数' : '上传图片自动提取，或手动输入'}
-                 </span>
-              </div>
-              
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                 <SmartInput label="相机型号" value={camera} onChange={setCamera} storageKey="camera" placeholder="Sony A7R V" theme={theme} />
-                 <SmartInput label="镜头" value={lens} onChange={setLens} storageKey="lens" placeholder="24-70mm" theme={theme} />
-                 <SmartInput label="焦段" value={focalLength} onChange={setFocalLength} storageKey="focal" placeholder="50mm" theme={theme} />
-                 <SmartInput label="光圈" value={aperture} onChange={setAperture} storageKey="aperture" placeholder="f/2.8" theme={theme} />
-                 <SmartInput label="快门" value={shutter} onChange={setShutter} storageKey="shutter" placeholder="1/200s" theme={theme} />
-                 <SmartInput label="ISO" value={iso} onChange={setIso} storageKey="iso" placeholder="100" theme={theme} />
-                 <div className="col-span-2">
-                    <SmartInput label="地点" value={location} onChange={setLocation} storageKey="location" placeholder="东京, 日本" theme={theme} />
-                 </div>
-              </div>
-              <div className="mt-4">
-                 <SmartInput label="拍摄日期" value={date} onChange={setDate} storageKey="date" placeholder="请选择日期" theme={theme} type="date" />
-              </div>
-            </div>
-
-            <button 
-              type="submit" 
-              disabled={!imageUrl || loading}
-              className={`w-full font-semibold py-3 rounded-xl hover:scale-[1.02] transition-transform disabled:opacity-50 shadow-lg mb-4
-                ${isDark ? 'bg-white text-black shadow-white/10' : 'bg-black text-white shadow-black/10'}
+        {/* Image Display Area (Relative for absolute images) */}
+        <div className="flex-1 w-full relative overflow-hidden perspective-[2000px]">
+          
+          {/* Exiting Photo (Old) */}
+          {exitingPhoto && (
+            <div 
+              key={`exit-${exitingPhoto.id}`}
+              className={`absolute inset-0 flex items-center justify-center p-0 md:p-2 will-change-transform
+                ${animDirection === 'right' ? 'animate-slide-out-left' : 'animate-slide-out-right'}
               `}
+              style={{ zIndex: 1 }}
+              onAnimationEnd={() => setExitingPhoto(null)}
             >
-              {editingPhoto ? '保存修改' : '发布到作品集'}
-            </button>
-          </form>
+              <img 
+                src={exitingPhoto.url} 
+                alt={exitingPhoto.title} 
+                className="max-w-full max-h-full object-contain shadow-[0_20px_50px_-12px_rgba(0,0,0,0.25)] backface-hidden"
+                draggable={false}
+                style={{ 
+                  transform: 'translate3d(0,0,0)',
+                  backfaceVisibility: 'hidden',
+                  WebkitBackfaceVisibility: 'hidden' 
+                }}
+              />
+            </div>
+          )}
+
+          {/* Active Photo (New) */}
+          <div 
+            key={`active-${activePhoto.id}`}
+            className={`absolute inset-0 flex items-center justify-center p-0 md:p-2 will-change-transform
+              ${exitingPhoto // Only animate if there is an exiting photo (navigation)
+                  ? (animDirection === 'right' ? 'animate-slide-in-right' : 'animate-slide-in-left')
+                  : (isFirstOpen ? 'animate-fade-in' : '') // FIX: Only fade in on first open, otherwise stay static to prevent flicker
+              }
+            `}
+            style={{ zIndex: 2 }}
+          >
+             <img 
+              src={activePhoto.url} 
+              alt={activePhoto.title} 
+              className="max-w-full max-h-full object-contain pointer-events-auto shadow-[0_20px_50px_-12px_rgba(0,0,0,0.25)] select-none hover:scale-[1.01] transition-transform duration-500 ease-out backface-hidden"
+              draggable={false}
+              loading="eager"
+              style={{ 
+                transform: 'translate3d(0,0,0)',
+                backfaceVisibility: 'hidden',
+                WebkitBackfaceVisibility: 'hidden' 
+              }}
+            />
+          </div>
         </div>
-      </GlassCard>
+        
+        {/* Bottom Detail Strip - Transparent & Floating */}
+        <div className="w-full pointer-events-auto pb-8 pt-4">
+          <div className="max-w-7xl mx-auto px-6">
+             <PhotoDetail 
+               exif={activePhoto.exif} 
+               rating={activePhoto.rating} 
+               theme={theme} 
+               isAdmin={isAdmin}
+               onRate={(newRating) => onUpdatePhoto?.({ ...activePhoto, rating: newRating })}
+             />
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
