@@ -37,7 +37,7 @@ const SmartInput: React.FC<SmartInputProps> = ({ label, value, onChange, storage
 
   const saveToHistory = () => {
     if (type !== 'text' || !value.trim()) return;
-    const newHistory = Array.from(new Set([value, ...history])).slice(0, 10);
+    const newHistory = Array.from(new Set([value, ...history])).slice(10);
     setHistory(newHistory);
     localStorage.setItem(`lumina_history_${storageKey}`, JSON.stringify(newHistory));
   };
@@ -166,74 +166,157 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUpl
     }
   }, [isOpen, editingPhoto]);
 
+  // Helper: Compress Image to under 2MB
+  const compressImage = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const maxSizeInBytes = 2 * 1024 * 1024; // 2MB
+      const objectUrl = URL.createObjectURL(file);
+      const img = new Image();
+      img.src = objectUrl;
+
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        let width = img.naturalWidth;
+        let height = img.naturalHeight;
+        
+        // 1. Limit Max Resolution (e.g. 2K QHD) to save size instantly
+        const MAX_DIMENSION = 2560;
+        let needsResize = false;
+
+        if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+          needsResize = true;
+          const ratio = width / height;
+          if (width > height) {
+            width = MAX_DIMENSION;
+            height = width / ratio;
+          } else {
+            height = MAX_DIMENSION;
+            width = height * ratio;
+          }
+        }
+
+        // If file is already small enough and dimensions are reasonable, use original
+        if (file.size <= maxSizeInBytes && !needsResize) {
+           const reader = new FileReader();
+           reader.onload = (e) => resolve(e.target?.result as string);
+           reader.onerror = reject;
+           reader.readAsDataURL(file);
+           return;
+        }
+
+        // 2. Compress via Canvas
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { reject(new Error('Canvas context unavailable')); return; }
+
+        ctx.drawImage(img, 0, 0, width, height);
+
+        let quality = 0.9;
+        let dataUrl = canvas.toDataURL('image/jpeg', quality);
+        
+        // Approx base64 length limit (base64 is ~1.37x larger than binary)
+        const maxStringLength = maxSizeInBytes * 1.37;
+
+        // Iteratively reduce quality
+        while (dataUrl.length > maxStringLength && quality > 0.3) {
+           quality -= 0.1;
+           dataUrl = canvas.toDataURL('image/jpeg', quality);
+        }
+
+        // Hard fallback if still too big
+        if (dataUrl.length > maxStringLength) {
+           const scale = 0.8;
+           canvas.width = width * scale;
+           canvas.height = height * scale;
+           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+           dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+        }
+
+        resolve(dataUrl);
+      };
+      
+      img.onerror = (e) => {
+        URL.revokeObjectURL(objectUrl);
+        reject(e);
+      }
+    });
+  };
+
   if (!isOpen) return null;
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       setLoading(true);
       
-      // 1. Read Image for Preview and Dimensions
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const base64 = reader.result as string;
-        const img = new Image();
-        img.onload = () => {
-           setImageDims({ width: img.naturalWidth, height: img.naturalHeight });
-           setImageUrl(base64);
-           setLoading(false);
-        };
-        img.src = base64;
-      };
-      reader.readAsDataURL(file);
-
-      // 2. Read EXIF Data safely
+      // 1. Read EXIF safely from Original File
       try {
-        EXIF.getData(file as any, function(this: any) {
-            if (!this || !this.exifdata) return;
+        await new Promise<void>((resolve) => {
+            EXIF.getData(file as any, function(this: any) {
+                if (!this || !this.exifdata) { resolve(); return; }
 
-            // Helper to get formatted value
-            const getTag = (tag: string) => EXIF.getTag(this, tag);
+                const getTag = (tag: string) => EXIF.getTag(this, tag);
 
-            const make = getTag('Make');
-            const model = getTag('Model');
-            if (model) {
-                const cleanMake = make ? make.replace(/\0/g, '').trim() : '';
-                const cleanModel = model.replace(/\0/g, '').trim();
-                setCamera(cleanModel.startsWith(cleanMake) ? cleanModel : `${cleanMake} ${cleanModel}`.trim());
-            }
-
-            const isoVal = getTag('ISOSpeedRatings');
-            if (isoVal) setIso(String(isoVal));
-
-            const fNumber = getTag('FNumber');
-            if (fNumber) setAperture(`f/${Number(fNumber).toFixed(1)}`.replace('.0', ''));
-
-            const exposure = getTag('ExposureTime');
-            if (exposure) {
-                // ExposureTime can be a Number or a Fraction object
-                if (typeof exposure === 'number') {
-                    setShutter(exposure < 1 ? `1/${Math.round(1/exposure)}s` : `${exposure}s`);
-                } else if (exposure.numerator && exposure.denominator) {
-                     setShutter(`${exposure.numerator}/${exposure.denominator}s`);
+                const make = getTag('Make');
+                const model = getTag('Model');
+                if (model) {
+                    const cleanMake = make ? make.replace(/\0/g, '').trim() : '';
+                    const cleanModel = model.replace(/\0/g, '').trim();
+                    setCamera(cleanModel.startsWith(cleanMake) ? cleanModel : `${cleanMake} ${cleanModel}`.trim());
                 }
-            }
 
-            const focal = getTag('FocalLength');
-            if (focal) {
-                 const fVal = typeof focal === 'number' ? focal : focal.numerator / focal.denominator;
-                 setFocalLength(`${Math.round(fVal)}mm`);
-            }
+                const isoVal = getTag('ISOSpeedRatings');
+                if (isoVal) setIso(String(isoVal));
 
-            const dateTag = getTag('DateTimeOriginal');
-            if (dateTag) {
-                // Format: "2023:10:24 14:30:00" -> "2023-10-24"
-                const parts = dateTag.split(' ')[0].replace(/:/g, '-');
-                setDate(parts);
-            }
+                const fNumber = getTag('FNumber');
+                if (fNumber) setAperture(`f/${Number(fNumber).toFixed(1)}`.replace('.0', ''));
+
+                const exposure = getTag('ExposureTime');
+                if (exposure) {
+                    // ExposureTime can be a Number or a Fraction object
+                    if (typeof exposure === 'number') {
+                        setShutter(exposure < 1 ? `1/${Math.round(1/exposure)}s` : `${exposure}s`);
+                    } else if (exposure.numerator && exposure.denominator) {
+                         setShutter(`${exposure.numerator}/${exposure.denominator}s`);
+                    }
+                }
+
+                const focal = getTag('FocalLength');
+                if (focal) {
+                     const fVal = typeof focal === 'number' ? focal : focal.numerator / focal.denominator;
+                     setFocalLength(`${Math.round(fVal)}mm`);
+                }
+
+                const dateTag = getTag('DateTimeOriginal');
+                if (dateTag) {
+                    // Format: "2023:10:24 14:30:00" -> "2023-10-24"
+                    const parts = dateTag.split(' ')[0].replace(/:/g, '-');
+                    setDate(parts);
+                }
+                resolve();
+            });
         });
       } catch (err) {
         console.error("EXIF Extraction failed:", err);
+      }
+
+      // 2. Compress and Load Image
+      try {
+         const compressedBase64 = await compressImage(file);
+         
+         const img = new Image();
+         img.onload = () => {
+             setImageDims({ width: img.naturalWidth, height: img.naturalHeight });
+             setImageUrl(compressedBase64);
+             setLoading(false);
+         };
+         img.src = compressedBase64;
+      } catch (err) {
+         console.error("Compression error:", err);
+         setLoading(false);
+         alert("图片处理失败，请重试");
       }
     }
   };
