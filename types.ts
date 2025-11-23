@@ -1,3 +1,4 @@
+
 export enum Category {
   ALL = '全部',
   LANDSCAPE = '风光',
@@ -20,6 +21,8 @@ export interface ExifData {
   location: string;
   date: string;
   focalLength?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface Photo {
