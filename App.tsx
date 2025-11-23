@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Menu, Plus, LogOut, Filter, Settings, Moon, Sun, Trash2, Pencil, Check, SlidersHorizontal } from 'lucide-react';
 import { GlassCard } from './components/GlassCard';
@@ -6,7 +7,25 @@ import { UploadModal } from './components/UploadModal';
 import { LoginModal } from './components/LoginModal';
 import { Category, Photo, Theme } from './types';
 
-// Mock Initial Data
+// Helper: Calculate distance between two coordinates in km (Haversine formula)
+function getDistanceFromLatLonInKm(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const R = 6371; // Radius of the earth in km
+  const dLat = deg2rad(lat2 - lat1);
+  const dLon = deg2rad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const d = R * c; // Distance in km
+  return d;
+}
+
+function deg2rad(deg: number) {
+  return deg * (Math.PI / 180);
+}
+
+// Mock Initial Data with Coordinates
 const BASE_PHOTOS: Photo[] = [
   {
     id: '1',
@@ -16,7 +35,10 @@ const BASE_PHOTOS: Photo[] = [
     width: 800,
     height: 600,
     rating: 5,
-    exif: { camera: 'Leica M11', lens: 'Summilux 35mm', focalLength: '35mm', aperture: 'f/5.6', shutterSpeed: '1/250s', iso: '100', location: '阿尔卑斯, 瑞士', date: '2023-10-12' }
+    exif: { 
+      camera: 'Leica M11', lens: 'Summilux 35mm', focalLength: '35mm', aperture: 'f/5.6', shutterSpeed: '1/250s', iso: '100', location: '阿尔卑斯, 瑞士', date: '2023-10-12',
+      latitude: 46.8182, longitude: 8.2275 // Switzerland
+    }
   },
   {
     id: '2',
@@ -26,7 +48,10 @@ const BASE_PHOTOS: Photo[] = [
     width: 600,
     height: 800,
     rating: 4,
-    exif: { camera: 'Fujifilm X-T5', lens: '23mm f/1.4', focalLength: '23mm', aperture: 'f/2.0', shutterSpeed: '1/60s', iso: '800', location: '新宿, 东京', date: '2023-11-05' }
+    exif: { 
+      camera: 'Fujifilm X-T5', lens: '23mm f/1.4', focalLength: '23mm', aperture: 'f/2.0', shutterSpeed: '1/60s', iso: '800', location: '新宿, 东京', date: '2023-11-05',
+      latitude: 35.6938, longitude: 139.7034 // Tokyo
+    }
   },
   {
     id: '3',
@@ -36,7 +61,10 @@ const BASE_PHOTOS: Photo[] = [
     width: 800,
     height: 800,
     rating: 5,
-    exif: { camera: 'Sony A7RV', lens: '85mm GM', focalLength: '85mm', aperture: 'f/1.2', shutterSpeed: '1/1000s', iso: '100', location: 'Studio A, 纽约', date: '2023-09-20' }
+    exif: { 
+      camera: 'Sony A7RV', lens: '85mm GM', focalLength: '85mm', aperture: 'f/1.2', shutterSpeed: '1/1000s', iso: '100', location: 'Studio A, 纽约', date: '2023-09-20',
+      latitude: 40.7128, longitude: -74.0060 // New York
+    }
   },
   {
     id: '4',
@@ -46,7 +74,10 @@ const BASE_PHOTOS: Photo[] = [
     width: 900,
     height: 600,
     rating: 4,
-    exif: { camera: 'Canon R5', lens: '15-35mm', focalLength: '15mm', aperture: 'f/8', shutterSpeed: '1/4s', iso: '50', location: '俄勒冈, 美国', date: '2023-08-15' }
+    exif: { 
+      camera: 'Canon R5', lens: '15-35mm', focalLength: '15mm', aperture: 'f/8', shutterSpeed: '1/4s', iso: '50', location: '俄勒冈, 美国', date: '2023-08-15',
+      latitude: 43.8041, longitude: -120.5542 // Oregon
+    }
   },
   {
     id: '5',
@@ -56,18 +87,30 @@ const BASE_PHOTOS: Photo[] = [
     width: 800,
     height: 600,
     rating: 3,
-    exif: { camera: 'Nikon Z8', lens: '105mm Macro', focalLength: '105mm', aperture: 'f/4', shutterSpeed: '1/200s', iso: '400', location: '伦敦, 英国', date: '2023-12-01' }
+    exif: { 
+      camera: 'Nikon Z8', lens: '105mm Macro', focalLength: '105mm', aperture: 'f/4', shutterSpeed: '1/200s', iso: '400', location: '伦敦, 英国', date: '2023-12-01',
+      latitude: 51.5074, longitude: -0.1278 // London
+    }
   },
 ];
 
 // Generate more photos for demo purposes
 const GENERATED_PHOTOS = Array.from({ length: 25 }).map((_, i) => {
   const base = BASE_PHOTOS[i % BASE_PHOTOS.length];
+  // Slightly randomize location for demo sorting
+  const latOffset = (Math.random() - 0.5) * 10;
+  const lngOffset = (Math.random() - 0.5) * 10;
+  
   return {
     ...base,
     id: `gen-${i}`,
     title: `${base.title} ${i + 1}`,
-    url: `https://picsum.photos/id/${(i * 13) % 100 + 10}/800/${i % 2 === 0 ? 600 : 800}`
+    url: `https://picsum.photos/id/${(i * 13) % 100 + 10}/800/${i % 2 === 0 ? 600 : 800}`,
+    exif: {
+      ...base.exif,
+      latitude: (base.exif.latitude || 0) + latOffset,
+      longitude: (base.exif.longitude || 0) + lngOffset
+    }
   };
 });
 
@@ -99,6 +142,10 @@ const App: React.FC = () => {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const loadMoreRef = useRef<HTMLDivElement>(null);
 
+  // Sorting & Location States
+  const [shuffleTrigger, setShuffleTrigger] = useState(0); // Trigger to force re-shuffle
+  const [userLocation, setUserLocation] = useState<{lat: number, lng: number} | null>(null);
+
   const isDark = theme === 'dark';
 
   // Background Component based on Theme
@@ -126,6 +173,44 @@ const App: React.FC = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  // Handle Tab Click - Special logic for Random and Location
+  const handleTabClick = (tab: string) => {
+    if (tab === '随览') {
+      // Always trigger re-shuffle even if already active
+      setShuffleTrigger(prev => prev + 1);
+    }
+    
+    // Only fetch location if clicking Nearby/Faraway and we don't have it yet
+    if ((tab === '附近' || tab === '远方') && !userLocation) {
+      if ('geolocation' in navigator) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            setUserLocation({
+              lat: position.coords.latitude,
+              lng: position.coords.longitude
+            });
+            // Location fetched successfully
+          },
+          (error) => {
+            let msg = "无法获取您的地理位置。";
+            if (error.code === error.PERMISSION_DENIED) msg = "您拒绝了位置权限，无法按距离排序。";
+            else if (error.code === error.POSITION_UNAVAILABLE) msg = "位置信息不可用。";
+            else if (error.code === error.TIMEOUT) msg = "获取位置超时。";
+            
+            console.warn("Geolocation error:", error.message);
+            alert(msg);
+          },
+          { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
+        );
+      } else {
+        alert("您的浏览器不支持地理位置功能。");
+      }
+    }
+    
+    // Set active tab immediately
+    setActiveTab(tab);
+  };
+
   // Filter & Sort Logic
   const filteredPhotos = useMemo(() => {
     let result = photos.filter(p => {
@@ -141,35 +226,54 @@ const App: React.FC = () => {
         result = result.filter(p => (p.rating || 0) >= 4);
         result.sort((a, b) => (b.rating || 0) - (a.rating || 0));
         break;
+        
       case '最新':
         // Photos are stored [Newest, ..., Oldest] via handleUpdatePhoto logic
         // So we just return the order as is.
         break;
+        
       case '随览':
-        // Random shuffle - simple version (re-randomizes on tab click via state dependency)
-        // Using a stable sort key if we wanted stable random, but standard random is fine for "Random" tab
+        // Random shuffle - depends on shuffleTrigger to re-run on every click
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const trigger = shuffleTrigger; // Dependency
         result = [...result].sort(() => Math.random() - 0.5);
         break;
+        
+      case '附近':
+      case '远方':
+        if (userLocation) {
+          result = result.sort((a, b) => {
+            const distA = (a.exif.latitude && a.exif.longitude) 
+              ? getDistanceFromLatLonInKm(userLocation.lat, userLocation.lng, a.exif.latitude, a.exif.longitude)
+              : 99999; // Put photos without location at the end
+            const distB = (b.exif.latitude && b.exif.longitude) 
+              ? getDistanceFromLatLonInKm(userLocation.lat, userLocation.lng, b.exif.latitude, b.exif.longitude)
+              : 99999;
+            
+            return activeTab === '附近' ? distA - distB : distB - distA;
+          });
+        }
+        break;
+        
       default:
-        // Default (Nearby/Faraway) - fallback to natural order for now
         break;
     }
 
     return result;
-  }, [photos, activeCategory, activeTab]);
+  }, [photos, activeCategory, activeTab, shuffleTrigger, userLocation]);
 
   // Progressive Loading Logic
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
     window.scrollTo(0,0);
-  }, [activeCategory, activeTab]);
+  }, [activeCategory, activeTab, shuffleTrigger]); // Reset when reshuffled
 
   useEffect(() => {
     const timer = setTimeout(() => {
       setVisibleCount(prev => Math.min(prev + PAGE_SIZE, filteredPhotos.length));
     }, 3000);
     return () => clearTimeout(timer);
-  }, [activeCategory, activeTab, filteredPhotos.length]);
+  }, [activeCategory, activeTab, shuffleTrigger, filteredPhotos.length]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -281,7 +385,7 @@ const App: React.FC = () => {
              {FEED_TABS.map(tab => (
                <button
                  key={tab}
-                 onClick={() => setActiveTab(tab)}
+                 onClick={() => handleTabClick(tab)}
                  className={`text-base font-serif transition-all whitespace-nowrap relative py-1
                     ${activeTab === tab 
                       ? (isDark ? 'text-white font-bold' : 'text-black font-bold')
@@ -373,7 +477,7 @@ const App: React.FC = () => {
           {visiblePhotos.map((photo) => (
             <div 
               key={photo.id} 
-              className={`break-inside-avoid animate-fade-in relative group-container mb-2 z-0 ${isManageMode ? '' : 'hover:z-10'} transition-all duration-300`}
+              className={`break-inside-avoid animate-fade-in relative group-container mb-2 z-0 hover:z-10 transition-all duration-300`}
             >
               <GlassCard 
                 theme={theme}
@@ -401,9 +505,9 @@ const App: React.FC = () => {
                 </div>
               </GlassCard>
               
-              {/* Manage Mode Overlay Layer */}
+              {/* Manage Mode Interaction Overlay */}
               {isManageMode && (
-                <div className="absolute inset-0 z-[50] bg-black/10 backdrop-blur-[1px] border-2 border-dashed border-white/30 flex items-start justify-between p-2 pointer-events-none">
+                <div className="absolute inset-0 z-[50] bg-black/20 backdrop-blur-[2px] border-2 border-dashed border-white/30 flex items-start justify-between p-2 pointer-events-auto">
                   {/* Top Left: Edit */}
                   <button
                     type="button"
@@ -413,7 +517,7 @@ const App: React.FC = () => {
                       setPhotoToEdit(photo);
                       setIsUploadOpen(true);
                     }}
-                    className="pointer-events-auto bg-blue-500 text-white p-2 rounded-full shadow-lg hover:scale-110 active:scale-95 transition-transform cursor-pointer"
+                    className="bg-blue-500 text-white p-2 rounded-full shadow-lg hover:scale-110 active:scale-95 transition-transform cursor-pointer"
                     title="编辑"
                   >
                     <Pencil size={14} />
@@ -423,7 +527,7 @@ const App: React.FC = () => {
                   <button
                     type="button"
                     onClick={(e) => handleDeletePhoto(e, photo.id)}
-                    className="pointer-events-auto bg-red-500 text-white p-2 rounded-full shadow-lg hover:scale-110 active:scale-95 transition-transform cursor-pointer"
+                    className="bg-red-500 text-white p-2 rounded-full shadow-lg hover:scale-110 active:scale-95 transition-transform cursor-pointer"
                     title="删除"
                   >
                     <Trash2 size={14} />
