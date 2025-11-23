@@ -365,19 +365,21 @@ const App: React.FC = () => {
     <div className={`min-h-screen font-sans selection:bg-purple-500/30 ${textPrimary}`}>
       <Background />
 
-      {/* Hero Section - Compact Branding */}
-      <header className="pt-12 pb-8 px-6 max-w-7xl mx-auto">
-        <div className="max-w-2xl animate-fade-in">
-          <h1 className="text-5xl md:text-7xl font-serif font-bold leading-tight mb-2 tracking-tight">
-            LUMINA.
-          </h1>
-          <p className={`text-lg leading-relaxed max-w-lg font-serif ${textSecondary} mb-0`}>
-            光与影的精选集，记录瞬间的永恒。
-            <br />
-            <span className="text-sm opacity-70">A curated collection of moments in light and shadow.</span>
-          </p>
-        </div>
-      </header>
+      {/* Hero Section - Compact Branding (Hidden in Map View) */}
+      {viewMode !== 'map' && (
+        <header className="pt-12 pb-8 px-6 max-w-7xl mx-auto">
+          <div className="max-w-2xl animate-fade-in">
+            <h1 className="text-5xl md:text-7xl font-serif font-bold leading-tight mb-2 tracking-tight">
+              LUMINA.
+            </h1>
+            <p className={`text-lg leading-relaxed max-w-lg font-serif ${textSecondary} mb-0`}>
+              光与影的精选集，记录瞬间的永恒。
+              <br />
+              <span className="text-sm opacity-70">A curated collection of moments in light and shadow.</span>
+            </p>
+          </div>
+        </header>
+      )}
 
       {/* Unified Sticky Utility Bar */}
       <div className={`sticky top-0 z-40 border-b transition-all duration-300 backdrop-blur-xl
@@ -496,11 +498,16 @@ const App: React.FC = () => {
       </div>
 
       {/* Main Content Area */}
-      <main className="px-2 md:px-6 py-8 max-w-7xl mx-auto min-h-[60vh]">
+      <main className={`
+        ${viewMode === 'map' 
+          ? "w-full h-[calc(100vh-65px)] relative" // Full screen map mode
+          : "px-2 md:px-6 py-8 max-w-7xl mx-auto min-h-[60vh]" // Normal grid mode
+        }
+      `}>
         
         {viewMode === 'map' ? (
            // MAP VIEW
-           <div className="h-[70vh] w-full">
+           <div className="w-full h-full">
              <MapView photos={filteredPhotos} theme={theme} onPhotoClick={handlePhotoClick} />
            </div>
         ) : (
@@ -585,10 +592,12 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* Footer */}
-      <footer className={`border-t py-12 text-center text-xs uppercase tracking-widest ${isDark ? 'border-white/5 text-white/20' : 'border-black/5 text-black/20'}`}>
-        <p>Lumina Portfolio</p>
-      </footer>
+      {/* Footer - Hidden in Map View */}
+      {viewMode !== 'map' && (
+        <footer className={`border-t py-12 text-center text-xs uppercase tracking-widest ${isDark ? 'border-white/5 text-white/20' : 'border-black/5 text-black/20'}`}>
+          <p>Lumina Portfolio</p>
+        </footer>
+      )}
 
       {/* Full Screen Photo Modal */}
       <PhotoModal 
