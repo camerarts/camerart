@@ -1,10 +1,11 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Menu, Plus, LogOut, Filter, Settings, Moon, Sun, Trash2, Pencil, Check, SlidersHorizontal } from 'lucide-react';
+import { Menu, Plus, LogOut, Filter, Settings, Moon, Sun, Trash2, Pencil, Check, SlidersHorizontal, Globe } from 'lucide-react';
 import { GlassCard } from './components/GlassCard';
 import { PhotoModal } from './components/PhotoModal';
 import { UploadModal } from './components/UploadModal';
 import { LoginModal } from './components/LoginModal';
+import { MapView } from './components/MapView';
 import { Category, Photo, Theme } from './types';
 
 // Helper: Calculate distance between two coordinates in km (Haversine formula)
@@ -124,6 +125,7 @@ const App: React.FC = () => {
   const [photos, setPhotos] = useState<Photo[]>(INITIAL_PHOTOS);
   const [activeCategory, setActiveCategory] = useState<Category>(Category.ALL);
   const [activeTab, setActiveTab] = useState<string>('最新');
+  const [viewMode, setViewMode] = useState<'grid' | 'map'>('grid');
 
   const [isAdmin, setIsAdmin] = useState(false);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
@@ -175,6 +177,9 @@ const App: React.FC = () => {
 
   // Handle Tab Click - Special logic for Random and Location
   const handleTabClick = (tab: string) => {
+    // Reset view mode to grid when clicking other tabs, unless user toggles map explicitly
+    if (viewMode === 'map') setViewMode('grid');
+
     if (tab === '随览') {
       // Always trigger re-shuffle even if already active
       setShuffleTrigger(prev => prev + 1);
@@ -266,7 +271,7 @@ const App: React.FC = () => {
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
     window.scrollTo(0,0);
-  }, [activeCategory, activeTab, shuffleTrigger]); // Reset when reshuffled
+  }, [activeCategory, activeTab, shuffleTrigger, viewMode]); // Reset when reshuffled or view changed
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -276,6 +281,7 @@ const App: React.FC = () => {
   }, [activeCategory, activeTab, shuffleTrigger, filteredPhotos.length]);
 
   useEffect(() => {
+    if (viewMode === 'map') return; // Don't scroll load in map view
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting) {
@@ -286,7 +292,7 @@ const App: React.FC = () => {
     );
     if (loadMoreRef.current) observer.observe(loadMoreRef.current);
     return () => observer.disconnect();
-  }, [filteredPhotos.length, visibleCount]); 
+  }, [filteredPhotos.length, visibleCount, viewMode]); 
 
   const visiblePhotos = filteredPhotos.slice(0, visibleCount);
 
@@ -399,6 +405,20 @@ const App: React.FC = () => {
                  )}
                </button>
              ))}
+             
+             {/* Map Toggle (Globe Icon) */}
+             <button
+               onClick={() => setViewMode(v => v === 'grid' ? 'map' : 'grid')}
+               className={`p-1 rounded-full transition-colors flex items-center justify-center
+                 ${viewMode === 'map' 
+                   ? (isDark ? 'text-white bg-white/10' : 'text-black bg-black/5') 
+                   : (isDark ? 'text-white/30 hover:text-white/80' : 'text-black/30 hover:text-black/80')
+                 }
+               `}
+               title={viewMode === 'map' ? "切换回网格" : "世界地图模式"}
+             >
+               <Globe size={18} />
+             </button>
           </div>
 
           {/* Right: Filters, Theme, Admin (Compact) */}
@@ -441,7 +461,11 @@ const App: React.FC = () => {
                <div className="flex items-center gap-1 flex-shrink-0">
                  {/* Toggle Management Mode */}
                  <button
-                   onClick={() => setIsManageMode(!isManageMode)}
+                   onClick={() => {
+                     // Disable map view if entering manage mode to avoid conflicts
+                     if (!isManageMode && viewMode === 'map') setViewMode('grid');
+                     setIsManageMode(!isManageMode);
+                   }}
                    className={`w-7 h-7 flex items-center justify-center rounded-full transition-colors ${isManageMode ? 'bg-purple-500 text-white' : (isDark ? 'text-white/60 hover:bg-white/10' : 'text-black/60 hover:bg-black/5')}`}
                    title="管理模式 (编辑/删除)"
                  >
@@ -471,82 +495,93 @@ const App: React.FC = () => {
         </div>
       </div>
 
-      {/* Gallery Grid */}
+      {/* Main Content Area */}
       <main className="px-2 md:px-6 py-8 max-w-7xl mx-auto min-h-[60vh]">
-        <div className="columns-2 md:columns-3 lg:columns-4 gap-2 md:gap-4 space-y-2 md:space-y-4">
-          {visiblePhotos.map((photo) => (
-            <div 
-              key={photo.id} 
-              className={`break-inside-avoid animate-fade-in relative group-container mb-2 z-0 hover:z-10 transition-all duration-300`}
-            >
-              <GlassCard 
-                theme={theme}
-                flat={true}
-                square={true}
-                hoverEffect={!isManageMode} // Disable hover effect in manage mode to stabilize buttons
-                className={`group h-full relative ${isManageMode ? 'cursor-default' : 'cursor-zoom-in'}`} 
-                onClick={() => handlePhotoClick(photo)}
-              >
-                <div className="relative overflow-hidden">
-                  <img 
-                    src={photo.url} 
-                    alt={photo.title} 
-                    className={`w-full h-auto object-cover transform transition-transform duration-700 ${isManageMode ? '' : 'group-hover:scale-105'}`}
-                    loading="lazy"
-                  />
+        
+        {viewMode === 'map' ? (
+           // MAP VIEW
+           <div className="h-[70vh] w-full">
+             <MapView photos={filteredPhotos} theme={theme} onPhotoClick={handlePhotoClick} />
+           </div>
+        ) : (
+          // GRID VIEW
+          <>
+            <div className="columns-2 md:columns-3 lg:columns-4 gap-2 md:gap-4 space-y-2 md:space-y-4">
+              {visiblePhotos.map((photo) => (
+                <div 
+                  key={photo.id} 
+                  className={`break-inside-avoid animate-fade-in relative group-container mb-2 z-0 hover:z-10 transition-all duration-300`}
+                >
+                  <GlassCard 
+                    theme={theme}
+                    flat={true}
+                    square={true}
+                    hoverEffect={!isManageMode} // Disable hover effect in manage mode to stabilize buttons
+                    className={`group h-full relative ${isManageMode ? 'cursor-default' : 'cursor-zoom-in'}`} 
+                    onClick={() => handlePhotoClick(photo)}
+                  >
+                    <div className="relative overflow-hidden">
+                      <img 
+                        src={photo.url} 
+                        alt={photo.title} 
+                        className={`w-full h-auto object-cover transform transition-transform duration-700 ${isManageMode ? '' : 'group-hover:scale-105'}`}
+                        loading="lazy"
+                      />
+                      
+                      {/* Minimal Overlay - Info on Hover (Only if not in manage mode) */}
+                      {!isManageMode && (
+                        <div className={`absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-4`}>
+                          <p className="text-white font-serif text-lg font-medium translate-y-4 group-hover:translate-y-0 transition-transform duration-300">{photo.title}</p>
+                          <p className="text-white/70 text-xs uppercase tracking-wider translate-y-4 group-hover:translate-y-0 transition-transform duration-300 delay-75">{photo.category}</p>
+                        </div>
+                      )}
+                    </div>
+                  </GlassCard>
                   
-                  {/* Minimal Overlay - Info on Hover (Only if not in manage mode) */}
-                  {!isManageMode && (
-                    <div className={`absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-4`}>
-                      <p className="text-white font-serif text-lg font-medium translate-y-4 group-hover:translate-y-0 transition-transform duration-300">{photo.title}</p>
-                      <p className="text-white/70 text-xs uppercase tracking-wider translate-y-4 group-hover:translate-y-0 transition-transform duration-300 delay-75">{photo.category}</p>
+                  {/* Manage Mode Interaction Overlay */}
+                  {isManageMode && (
+                    <div className="absolute inset-0 z-[50] bg-black/20 backdrop-blur-[2px] border-2 border-dashed border-white/30 flex items-start justify-between p-2 pointer-events-auto">
+                      {/* Top Left: Edit */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setPhotoToEdit(photo);
+                          setIsUploadOpen(true);
+                        }}
+                        className="bg-blue-500 text-white p-2 rounded-full shadow-lg hover:scale-110 active:scale-95 transition-transform cursor-pointer"
+                        title="编辑"
+                      >
+                        <Pencil size={14} />
+                      </button>
+
+                      {/* Top Right: Delete */}
+                      <button
+                        type="button"
+                        onClick={(e) => handleDeletePhoto(e, photo.id)}
+                        className="bg-red-500 text-white p-2 rounded-full shadow-lg hover:scale-110 active:scale-95 transition-transform cursor-pointer"
+                        title="删除"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
                   )}
                 </div>
-              </GlassCard>
-              
-              {/* Manage Mode Interaction Overlay */}
-              {isManageMode && (
-                <div className="absolute inset-0 z-[50] bg-black/20 backdrop-blur-[2px] border-2 border-dashed border-white/30 flex items-start justify-between p-2 pointer-events-auto">
-                  {/* Top Left: Edit */}
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setPhotoToEdit(photo);
-                      setIsUploadOpen(true);
-                    }}
-                    className="bg-blue-500 text-white p-2 rounded-full shadow-lg hover:scale-110 active:scale-95 transition-transform cursor-pointer"
-                    title="编辑"
-                  >
-                    <Pencil size={14} />
-                  </button>
-
-                  {/* Top Right: Delete */}
-                  <button
-                    type="button"
-                    onClick={(e) => handleDeletePhoto(e, photo.id)}
-                    className="bg-red-500 text-white p-2 rounded-full shadow-lg hover:scale-110 active:scale-95 transition-transform cursor-pointer"
-                    title="删除"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              )}
+              ))}
             </div>
-          ))}
-        </div>
-        
-        {/* Scroll Sentinel */}
-        <div ref={loadMoreRef} className="h-20 w-full flex items-center justify-center pointer-events-none opacity-0">
-           Loading...
-        </div>
+            
+            {/* Scroll Sentinel */}
+            <div ref={loadMoreRef} className="h-20 w-full flex items-center justify-center pointer-events-none opacity-0">
+              Loading...
+            </div>
 
-        {filteredPhotos.length === 0 && (
-          <div className={`text-center py-20 ${textSecondary}`}>
-            <p>该分类下暂无图片。</p>
-          </div>
+            {filteredPhotos.length === 0 && (
+              <div className={`text-center py-20 ${textSecondary}`}>
+                <p>该分类下暂无图片。</p>
+              </div>
+            )}
+          </>
         )}
       </main>
 
